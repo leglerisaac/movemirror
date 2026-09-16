@@ -4,9 +4,9 @@ import "./globals.css";
 const assetRoot = process.env.GITHUB_ACTIONS === "true" ? "/movemirror" : "";
 
 export const metadata: Metadata = {
-  title: "MoveMirror — Chess.com Strength & Weakness Analyzer",
+  title: "MoveMirror — Chess.com & Lichess Game Analyzer",
   description:
-    "Replay recent Chess.com games to find recurring strengths, weaknesses, and the puzzle themes worth training next.",
+    "Replay recent Chess.com or Lichess games to find recurring strengths, weaknesses, and the puzzle themes worth training next.",
   icons: {
     icon: `${assetRoot}/favicon.svg`,
     shortcut: `${assetRoot}/favicon.svg`,

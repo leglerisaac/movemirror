@@ -1,9 +1,9 @@
 import type {
-  ChessComGame,
-  ChessComProfile,
+  ChessGame,
   FetchGamesResult,
   FetchProgress,
   GameFilter,
+  PlayerProfile,
 } from "./types"
 
 const API_ROOT = "https://api.chess.com/pub"
@@ -14,7 +14,7 @@ interface ArchiveIndex {
 }
 
 interface GameArchive {
-  games: ChessComGame[]
+  games: ChessGame[]
 }
 
 export class ChessComApiError extends Error {
@@ -196,10 +196,11 @@ export async function fetchRecentGames({
     label: "Finding the player profile…",
     percent: 6,
   })
-  const profile = await requestJson<ChessComProfile>(
+  const profileResponse = await requestJson<Omit<PlayerProfile, "platform">>(
     `${API_ROOT}/player/${encodedUsername}`,
     signal,
   )
+  const profile: PlayerProfile = { ...profileResponse, platform: "chesscom" }
 
   onProgress?.({
     stage: "archives",
@@ -214,7 +215,7 @@ export async function fetchRecentGames({
   const archiveUrls = [...(archiveIndex.archives ?? [])]
     .reverse()
     .slice(0, MAX_ARCHIVES_TO_SCAN)
-  const matchingGames: ChessComGame[] = []
+  const matchingGames: ChessGame[] = []
   let monthsScanned = 0
 
   for (const archiveUrl of archiveUrls) {
@@ -256,7 +257,6 @@ export async function fetchRecentGames({
   return {
     profile,
     games,
-    monthsScanned,
-    availableArchives: archiveIndex.archives?.length ?? 0,
+    sourcesScanned: monthsScanned,
   }
 }

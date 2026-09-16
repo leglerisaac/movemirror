@@ -368,6 +368,74 @@ select {
   height: 15px;
 }
 
+.platform-picker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 18px;
+}
+
+.platform-picker > span {
+  color: #4b5c56;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.platform-picker > div {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #c8d5cf;
+  border-radius: 11px;
+  background: #e9efec;
+}
+
+.platform-picker button {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #64736d;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 800;
+  transition: background 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
+.platform-picker button.active {
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgb(7 31 23 / 9%);
+  color: #123d31;
+}
+
+.platform-picker button:focus-visible {
+  outline: 3px solid rgb(13 128 100 / 22%);
+  outline-offset: 2px;
+}
+
+.platform-picker button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.platform-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #769656;
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 50%);
+}
+
+.lichess-dot {
+  background: #a77a49;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: minmax(270px, 1.6fr) 110px 155px auto;
@@ -770,6 +838,10 @@ select {
   font-size: 1.2rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.player-name-line h2 a:hover {
+  color: #0d8064;
 }
 
 .player-identity p {
@@ -1703,6 +1775,12 @@ footer > a:last-child svg {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .platform-picker {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .username-field,

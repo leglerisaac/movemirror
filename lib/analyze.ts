@@ -2,7 +2,8 @@ import { Chess, SQUARES, type Color, type Move, type PieceSymbol, type Square } 
 
 import type {
   AnalysisReport,
-  ChessComGame,
+  ChessGame,
+  ChessPlatform,
   DiagnosticMetrics,
   Finding,
   GameSummary,
@@ -96,11 +97,12 @@ function outcomeScore(outcome: Outcome) {
 
 function titleCase(value: string) {
   return value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function openingName(game: ChessComGame, headers: Record<string, string>) {
+function openingName(game: ChessGame, headers: Record<string, string>) {
   const source = game.eco ?? headers.ECOUrl ?? headers.Opening
 
   if (source?.startsWith("http")) {
@@ -281,7 +283,7 @@ function persistentMaterialDrops(boundaries: BoundarySnapshot[]) {
   return drops
 }
 
-function parseGame(game: ChessComGame, username: string): GameDiagnostic | null {
+function parseGame(game: ChessGame, username: string): GameDiagnostic | null {
   const normalized = username.toLowerCase()
   const isWhite = game.white.username.toLowerCase() === normalized
   const isBlack = game.black.username.toLowerCase() === normalized
@@ -506,7 +508,7 @@ function topFindings(candidates: RankedFinding[], limit = 3) {
       return true
     })
     .slice(0, limit)
-    .map(({ key: _key, ...finding }) => finding)
+    .map(({ title, value, detail, score }) => ({ title, value, detail, score }))
 }
 
 function buildStrengths(
@@ -593,7 +595,7 @@ function buildStrengths(
       key: "accuracy",
       title: "Reviewed-game accuracy",
       value: `${metrics.averageAccuracy.toFixed(1)} average`,
-      detail: `Chess.com accuracy was available for ${metrics.accuracySample} games.`,
+      detail: `Platform-provided accuracy was available for ${metrics.accuracySample} games.`,
       score: metrics.averageAccuracy,
     })
   }
@@ -713,6 +715,7 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
       reason: "Practice a safety scan before every move: checks, captures, threats, then undefended pieces.",
       practice: "10 themed puzzles · 3× per week",
       signal: `${metrics.hangingLosses} likely loose-piece losses`,
+      lichessTheme: "hangingPiece",
       score: 28 + (metrics.hangingLosses / total) * 180,
     },
     {
@@ -721,6 +724,7 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
       reason: "Train yourself to map every knight, pawn and queen attack after the opponent moves.",
       practice: "8 slow puzzles · name both targets",
       signal: `${metrics.forkExposures} double-attack signals`,
+      lichessTheme: "fork",
       score: 26 + (metrics.forkExposures / total) * 155,
     },
     {
@@ -729,6 +733,7 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
       reason: "Look through every bishop, rook and queen line before moving a blocker or high-value piece.",
       practice: "8 themed puzzles · calculate 2 moves deep",
       signal: `${metrics.linePressureExposures} vulnerable line-ups`,
+      lichessTheme: "pin",
       score: 24 + (metrics.linePressureExposures / total) * 125,
     },
     {
@@ -740,6 +745,7 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
         metrics.middlegameStability === null
           ? "Build a broader defensive sample"
           : `${Math.round(100 - metrics.middlegameStability)}% of middlegames had a material drop`,
+      lichessTheme: "defensiveMove",
       score: 30 + (100 - (metrics.middlegameStability ?? 70)) * 0.9,
     },
     {
@@ -750,6 +756,7 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
       signal: `${metrics.checkmateLosses} checkmate losses${
         metrics.backRankLosses ? ` · ${metrics.backRankLosses} on the back rank` : ""
       }`,
+      lichessTheme: metrics.backRankLosses ? "backRankMate" : "mate",
       score: 24 + (metrics.checkmateLosses / total) * 105 + metrics.backRankLosses * 18,
     },
     {
@@ -760,6 +767,7 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
       signal: metrics.advantageChances
         ? `${metrics.advantageChances - metrics.convertedAdvantages} advantages not converted`
         : "Build the habit before the next winning position",
+      lichessTheme: "advantage",
       score: 22 + (100 - conversionRate) * 0.7,
     },
     {
@@ -771,6 +779,7 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
         metrics.endgameScore === null
           ? "Not enough endgames for a firm read"
           : `${Math.round(metrics.endgameScore)}% score across ${metrics.endgameSample} endgames`,
+      lichessTheme: "endgame",
       score: 23 + (100 - (metrics.endgameScore ?? 55)) * 0.65,
     },
     {
@@ -779,6 +788,7 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
       reason: "Short mixed sets improve recognition without replacing slower calculation practice.",
       practice: "Puzzle Rush Survival · 1× per week",
       signal: `${metrics.timeoutLosses} timeout losses in the sample`,
+      lichessTheme: "short",
       score: 18 + (metrics.timeoutLosses / total) * 180,
     },
   ]
@@ -792,13 +802,21 @@ function buildRecommendations(games: GameDiagnostic[], metrics: DiagnosticMetric
       return true
     })
     .slice(0, 3)
-    .map(({ key: _key, ...recommendation }) => recommendation)
+    .map(({ category, reason, practice, signal, lichessTheme, score }) => ({
+      category,
+      reason,
+      practice,
+      signal,
+      lichessTheme,
+      score,
+    }))
 }
 
 export function analyzeGames(
   username: string,
-  games: ChessComGame[],
+  games: ChessGame[],
   requestedGames: number,
+  platform: ChessPlatform = "chesscom",
 ): AnalysisReport {
   const diagnostics = games
     .map((game) => parseGame(game, username))
@@ -812,7 +830,7 @@ export function analyzeGames(
   const byColor = splitSummary(diagnostics, ["White", "Black"], (game) => game.summary.color)
   const byTimeClass = splitSummary(
     diagnostics,
-    ["Rapid", "Blitz", "Bullet", "Daily"],
+    ["Ultra Bullet", "Bullet", "Blitz", "Rapid", "Classical", "Correspondence", "Daily"],
     (game) => game.summary.timeClass,
   )
   const openingGames = diagnostics.filter((game) => game.openingEligible)
@@ -879,6 +897,7 @@ export function analyzeGames(
     average(diagnostics.map((game) => game.summary.opponentRating)) ?? 0
 
   return {
+    platform,
     username,
     requestedGames,
     gamesAnalyzed: diagnostics.length,

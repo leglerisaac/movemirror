@@ -29,20 +29,54 @@ import {
 import { Progress } from "@/components/ui/progress"
 import { analyzeGames } from "@/lib/analyze"
 import {
-  ChessComApiError,
-  fetchRecentGames,
+  fetchRecentGames as fetchRecentChessComGames,
   normalizeUsername,
   validateUsername,
 } from "@/lib/chesscom"
+import {
+  fetchRecentLichessGames,
+  normalizeLichessUsername,
+  validateLichessUsername,
+} from "@/lib/lichess"
 import type {
   AnalysisReport,
-  ChessComProfile,
+  ChessPlatform,
   FetchProgress,
   GameFilter,
   Outcome,
+  PlayerProfile,
 } from "@/lib/types"
 
-const PUZZLE_URL = "https://www.chess.com/puzzles/learning"
+const CHESSCOM_PUZZLE_URL = "https://www.chess.com/puzzles/learning"
+const LICHESS_PUZZLE_THEMES_URL = "https://lichess.org/training/themes"
+
+const FORMAT_OPTIONS: Record<
+  ChessPlatform,
+  Array<{ value: GameFilter; label: string }>
+> = {
+  chesscom: [
+    { value: "all", label: "All standard" },
+    { value: "rapid", label: "Rapid" },
+    { value: "blitz", label: "Blitz" },
+    { value: "bullet", label: "Bullet" },
+    { value: "daily", label: "Daily" },
+  ],
+  lichess: [
+    { value: "all", label: "All standard" },
+    { value: "rapid", label: "Rapid" },
+    { value: "blitz", label: "Blitz" },
+    { value: "bullet", label: "Bullet" },
+    { value: "ultraBullet", label: "UltraBullet" },
+    { value: "classical", label: "Classical" },
+    { value: "correspondence", label: "Correspondence" },
+  ],
+}
+
+const ALL_FILTERS = new Set<GameFilter>(
+  Object.values(FORMAT_OPTIONS).flatMap((options) =>
+    options.map((option) => option.value),
+  ),
+)
 
 const INITIAL_PROGRESS: FetchProgress = {
   stage: "profile",
@@ -75,6 +109,19 @@ function outcomeLabel(outcome: Outcome) {
   if (outcome === "win") return "Won"
   if (outcome === "draw") return "Draw"
   return "Lost"
+}
+
+function platformLabel(platform: ChessPlatform) {
+  return platform === "lichess" ? "Lichess" : "Chess.com"
+}
+
+function puzzleUrl(
+  platform: ChessPlatform,
+  recommendation: AnalysisReport["recommendations"][number],
+) {
+  return platform === "lichess"
+    ? `https://lichess.org/training/${recommendation.lichessTheme}`
+    : CHESSCOM_PUZZLE_URL
 }
 
 function BrandMark() {
@@ -124,10 +171,16 @@ function EmptyPreview() {
   )
 }
 
-function LoadingPanel({ progress }: { progress: FetchProgress }) {
+function LoadingPanel({
+  progress,
+  platform,
+}: {
+  progress: FetchProgress
+  platform: ChessPlatform
+}) {
   const steps = [
     { key: "profile", label: "Player" },
-    { key: "archives", label: "Archives" },
+    { key: "archives", label: platform === "lichess" ? "Game feed" : "Archives" },
     { key: "games", label: "Games" },
     { key: "analysis", label: "Patterns" },
   ]
@@ -218,18 +271,21 @@ function Report({
   onReset,
 }: {
   report: AnalysisReport
-  profile: ChessComProfile
+  profile: PlayerProfile
   onReset: () => void
 }) {
   const accuracy = report.metrics.averageAccuracy
   const period = `${formatDate(report.dateFrom)} – ${formatDate(report.dateTo)}`
+  const sourceName = platformLabel(report.platform)
+  const allPuzzlesUrl =
+    report.platform === "lichess" ? LICHESS_PUZZLE_THEMES_URL : CHESSCOM_PUZZLE_URL
 
   return (
     <div className="report" id="report">
       <section className="player-strip">
         <div className="player-identity">
           {profile.avatar ? (
-            // The public Chess.com profile image is intentionally displayed as supplied.
+            // Public profile images are intentionally displayed as supplied by the platform.
             // eslint-disable-next-line @next/next/no-img-element
             <img src={profile.avatar} alt="" />
           ) : (
@@ -239,10 +295,14 @@ function Report({
           )}
           <div>
             <div className="player-name-line">
-              <h2>{profile.name || profile.username}</h2>
+              <h2>
+                <a href={profile.url} target="_blank" rel="noreferrer">
+                  {profile.name || profile.username}
+                </a>
+              </h2>
               {profile.title && <Badge className="title-badge">{profile.title}</Badge>}
             </div>
-            <p>@{profile.username} · {period}</p>
+            <p>@{profile.username} on {sourceName} · {period}</p>
           </div>
         </div>
         <div className="player-actions">
@@ -272,7 +332,7 @@ function Report({
           note={`Opponents averaged ${report.averageOpponentRating}`}
         />
         <StatCard
-          label="Chess.com accuracy"
+          label={`${sourceName} accuracy`}
           value={accuracy === null ? "—" : accuracy.toFixed(1)}
           note={
             accuracy === null
@@ -341,8 +401,8 @@ function Report({
             <span className="section-kicker">Your training queue</span>
             <h2>Three puzzle themes to work next</h2>
           </div>
-          <a href={PUZZLE_URL} target="_blank" rel="noreferrer" className="text-link">
-            Open Chess.com Custom Puzzles <ArrowUpRight />
+          <a href={allPuzzlesUrl} target="_blank" rel="noreferrer" className="text-link">
+            {report.platform === "lichess" ? "Browse Lichess Puzzle Themes" : "Open Chess.com Custom Puzzles"} <ArrowUpRight />
           </a>
         </div>
         <div className="recommendation-list">
@@ -360,16 +420,22 @@ function Report({
               <div className="practice-dose">
                 <span>Practice dose</span>
                 <strong>{recommendation.practice}</strong>
-                <a href={PUZZLE_URL} target="_blank" rel="noreferrer" aria-label={`Practice ${recommendation.category} on Chess.com`}>
-                  Find the closest theme <ChevronRight />
+                <a
+                  href={puzzleUrl(report.platform, recommendation)}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Practice ${recommendation.category} on ${sourceName}`}
+                >
+                  {report.platform === "lichess" ? "Open this Lichess theme" : "Find the closest theme"} <ChevronRight />
                 </a>
               </div>
             </article>
           ))}
         </div>
         <p className="taxonomy-note">
-          Chess.com refreshed its puzzle taxonomy in September 2026, so a theme’s
-          exact label may vary. Choose the closest wording shown in Custom Puzzles.
+          {report.platform === "lichess"
+            ? "Each recommendation opens the closest matching Lichess puzzle theme. Sign in there if you want Lichess to track your progress."
+            : "Chess.com refreshed its puzzle taxonomy in September 2026, so a theme’s exact label may vary. Choose the closest wording shown in Custom Puzzles."}
         </p>
       </section>
 
@@ -434,7 +500,7 @@ function Report({
             <span className="section-kicker">Audit trail</span>
             <h2>Recent games in the sample</h2>
           </div>
-          <p>Open any game on Chess.com to compare the report with the full board review.</p>
+          <p>Open any game on {sourceName} to compare the report with the full board review.</p>
         </div>
         <div className="table-scroll">
           <table>
@@ -472,24 +538,41 @@ function Report({
 }
 
 export default function Home() {
+  const [platform, setPlatform] = useState<ChessPlatform>("chesscom")
   const [username, setUsername] = useState("")
   const [gameCount, setGameCount] = useState(30)
   const [filter, setFilter] = useState<GameFilter>("all")
   const [progress, setProgress] = useState(INITIAL_PROGRESS)
-  const [profile, setProfile] = useState<ChessComProfile | null>(null)
+  const [profile, setProfile] = useState<PlayerProfile | null>(null)
   const [report, setReport] = useState<AnalysisReport | null>(null)
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [error, setError] = useState("")
   const abortRef = useRef<AbortController | null>(null)
 
   const runAnalysis = useCallback(
-    async (overrides?: { username?: string; count?: number; filter?: GameFilter }) => {
-      const requestedUsername = normalizeUsername(overrides?.username ?? username)
+    async (overrides?: {
+      platform?: ChessPlatform
+      username?: string
+      count?: number
+      filter?: GameFilter
+    }) => {
+      const requestedPlatform = overrides?.platform ?? platform
+      const normalize =
+        requestedPlatform === "lichess" ? normalizeLichessUsername : normalizeUsername
+      const validate =
+        requestedPlatform === "lichess" ? validateLichessUsername : validateUsername
+      const requestedUsername = normalize(overrides?.username ?? username)
       const requestedCount = Math.round(overrides?.count ?? gameCount)
       const requestedFilter = overrides?.filter ?? filter
 
-      if (!validateUsername(requestedUsername)) {
-        const message = "Enter a valid Chess.com username (letters, numbers, dashes or underscores)."
+      if (!validate(requestedUsername)) {
+        const message = `Enter a valid ${platformLabel(requestedPlatform)} username (letters, numbers, dashes or underscores).`
+        setError(message)
+        setStatus("error")
+        throw new Error(message)
+      }
+      if (!FORMAT_OPTIONS[requestedPlatform].some((option) => option.value === requestedFilter)) {
+        const message = `${platformLabel(requestedPlatform)} does not use that game format. Choose one of the formats shown.`
         setError(message)
         setStatus("error")
         throw new Error(message)
@@ -504,6 +587,7 @@ export default function Home() {
       abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
+      setPlatform(requestedPlatform)
       setUsername(requestedUsername)
       setGameCount(requestedCount)
       setFilter(requestedFilter)
@@ -514,7 +598,11 @@ export default function Home() {
       setProgress({ ...INITIAL_PROGRESS, label: "Starting the analysis…", percent: 2 })
 
       try {
-        const result = await fetchRecentGames({
+        const fetchGames =
+          requestedPlatform === "lichess"
+            ? fetchRecentLichessGames
+            : fetchRecentChessComGames
+        const result = await fetchGames({
           username: requestedUsername,
           count: requestedCount,
           filter: requestedFilter,
@@ -528,7 +616,12 @@ export default function Home() {
           percent: 76,
         })
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-        const nextReport = analyzeGames(requestedUsername, result.games, requestedCount)
+        const nextReport = analyzeGames(
+          result.profile.username,
+          result.games,
+          requestedCount,
+          requestedPlatform,
+        )
         setProgress({
           stage: "analysis",
           label: "Ranking the strongest training signals…",
@@ -546,7 +639,7 @@ export default function Home() {
       } catch (caught) {
         if (controller.signal.aborted) throw caught
         const message =
-          caught instanceof ChessComApiError || caught instanceof Error
+          caught instanceof Error
             ? caught.message
             : "Something went wrong while analyzing those games."
         setError(message)
@@ -554,7 +647,7 @@ export default function Home() {
         throw caught
       }
     },
-    [filter, gameCount, username],
+    [filter, gameCount, platform, username],
   )
 
   useEffect(() => {
@@ -565,18 +658,33 @@ export default function Home() {
     void Promise.resolve(
       context.registerTool(
         {
-          name: "analyze_chesscom_games",
-          title: "Analyze Chess.com games",
+          name: "analyze_chess_games",
+          title: "Analyze Chess.com or Lichess games",
           description:
-            "Analyze a public Chess.com player's recent standard games and update the visible MoveMirror report with strengths, weaknesses, and puzzle recommendations.",
+            "Analyze a public Chess.com or Lichess player's recent standard games and update the visible MoveMirror report with strengths, weaknesses, and platform-specific puzzle recommendations.",
           inputSchema: {
             type: "object",
             properties: {
-              username: { type: "string", description: "Chess.com username" },
+              platform: {
+                type: "string",
+                enum: ["chesscom", "lichess"],
+                default: "chesscom",
+                description: "The chess platform that owns the account",
+              },
+              username: { type: "string", description: "Public account username" },
               count: { type: "integer", minimum: 5, maximum: 100, default: 30 },
               filter: {
                 type: "string",
-                enum: ["all", "rapid", "blitz", "bullet", "daily"],
+                enum: [
+                  "all",
+                  "rapid",
+                  "blitz",
+                  "bullet",
+                  "daily",
+                  "ultraBullet",
+                  "classical",
+                  "correspondence",
+                ],
                 default: "all",
               },
             },
@@ -586,19 +694,31 @@ export default function Home() {
           annotations: { readOnlyHint: true, untrustedContentHint: true },
           async execute(input: unknown) {
             if (!input || typeof input !== "object") throw new Error("Input must be an object.")
-            const candidate = input as { username?: unknown; count?: unknown; filter?: unknown }
+            const candidate = input as {
+              platform?: unknown
+              username?: unknown
+              count?: unknown
+              filter?: unknown
+            }
             if (typeof candidate.username !== "string") throw new Error("username is required.")
+            const nextPlatform =
+              candidate.platform === undefined ? "chesscom" : String(candidate.platform)
+            if (nextPlatform !== "chesscom" && nextPlatform !== "lichess") {
+              throw new Error("platform must be chesscom or lichess.")
+            }
             const count = candidate.count === undefined ? 30 : Number(candidate.count)
             const nextFilter = candidate.filter === undefined ? "all" : String(candidate.filter)
-            if (!["all", "rapid", "blitz", "bullet", "daily"].includes(nextFilter)) {
-              throw new Error("filter must be all, rapid, blitz, bullet, or daily.")
+            if (!ALL_FILTERS.has(nextFilter as GameFilter)) {
+              throw new Error("filter is not a supported game format.")
             }
             const nextReport = await runAnalysis({
+              platform: nextPlatform,
               username: candidate.username,
               count,
               filter: nextFilter as GameFilter,
             })
             return {
+              platform: nextReport.platform,
               username: nextReport.username,
               gamesAnalyzed: nextReport.gamesAnalyzed,
               scorePct: nextReport.record.scorePct,
@@ -622,6 +742,14 @@ export default function Home() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     void runAnalysis().catch(() => undefined)
+  }
+
+  const choosePlatform = (nextPlatform: ChessPlatform) => {
+    if (status === "loading" || nextPlatform === platform) return
+    setPlatform(nextPlatform)
+    setFilter("all")
+    setError("")
+    if (status === "error") setStatus("idle")
   }
 
   const reset = () => {
@@ -653,8 +781,8 @@ export default function Home() {
           <Badge className="hero-badge"><ShieldCheck /> Public data · private analysis</Badge>
           <h1>Your games already know <em>what to train next.</em></h1>
           <p>
-            Enter a Chess.com username. MoveMirror replays recent games, finds
-            recurring strengths and leaks, then turns them into a focused puzzle plan.
+            Enter a Chess.com or Lichess username. MoveMirror replays recent games,
+            finds recurring strengths and leaks, then turns them into a focused puzzle plan.
           </p>
         </div>
 
@@ -667,15 +795,41 @@ export default function Home() {
             <span className="form-time"><Clock3 /> Usually under 30 seconds</span>
           </div>
 
+          <div className="platform-picker" role="group" aria-label="Chess platform">
+            <span>Analyze from</span>
+            <div>
+              <button
+                type="button"
+                className={platform === "chesscom" ? "active" : ""}
+                aria-pressed={platform === "chesscom"}
+                onClick={() => choosePlatform("chesscom")}
+                disabled={status === "loading"}
+              >
+                <i className="platform-dot chesscom-dot" aria-hidden="true" />
+                Chess.com
+              </button>
+              <button
+                type="button"
+                className={platform === "lichess" ? "active" : ""}
+                aria-pressed={platform === "lichess"}
+                onClick={() => choosePlatform("lichess")}
+                disabled={status === "loading"}
+              >
+                <i className="platform-dot lichess-dot" aria-hidden="true" />
+                Lichess
+              </button>
+            </div>
+          </div>
+
           <div className="form-grid">
             <label className="username-field">
-              <span>Chess.com username</span>
+              <span>{platformLabel(platform)} username</span>
               <div className="input-shell">
                 <span aria-hidden="true">@</span>
                 <Input
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  placeholder="e.g. gothamchess"
+                  placeholder={platform === "lichess" ? "e.g. thibault" : "e.g. gothamchess"}
                   autoComplete="off"
                   spellCheck={false}
                   disabled={status === "loading"}
@@ -705,11 +859,11 @@ export default function Home() {
                 disabled={status === "loading"}
                 aria-label="Game format"
               >
-                <NativeSelectOption value="all">All standard</NativeSelectOption>
-                <NativeSelectOption value="rapid">Rapid</NativeSelectOption>
-                <NativeSelectOption value="blitz">Blitz</NativeSelectOption>
-                <NativeSelectOption value="bullet">Bullet</NativeSelectOption>
-                <NativeSelectOption value="daily">Daily</NativeSelectOption>
+                {FORMAT_OPTIONS[platform].map((option) => (
+                  <NativeSelectOption key={option.value} value={option.value}>
+                    {option.label}
+                  </NativeSelectOption>
+                ))}
               </NativeSelect>
             </label>
 
@@ -721,7 +875,7 @@ export default function Home() {
 
           <div className="form-footer">
             <span><LockKeyhole /> Everything runs in this browser. Nothing is saved.</span>
-            <span>5–100 games · Standard chess only</span>
+            <span>Chess.com + Lichess · 5–100 games · Standard chess only</span>
           </div>
 
           {status === "error" && error && (
@@ -734,7 +888,7 @@ export default function Home() {
       </section>
 
       <div className="page-shell">
-        {status === "loading" && <LoadingPanel progress={progress} />}
+        {status === "loading" && <LoadingPanel progress={progress} platform={platform} />}
         {status === "success" && report && profile && (
           <Report report={report} profile={profile} onReset={reset} />
         )}
@@ -749,8 +903,8 @@ export default function Home() {
             <article>
               <span><Check /> What it uses</span>
               <p>
-                Public PGNs, results, ratings, time controls, opening links and any
-                Chess.com accuracy values already attached to a game.
+                Public PGNs, results, ratings, time controls, opening names and any
+                accuracy values already attached by Chess.com or Lichess.
               </p>
             </article>
             <article>
@@ -769,10 +923,11 @@ export default function Home() {
             </article>
           </div>
           <div className="source-line">
-            <span>Built on Chess.com’s read-only public API. Not affiliated with Chess.com.</span>
+            <span>Built on read-only public data. Not affiliated with Chess.com or Lichess.</span>
             <div>
-              <a href="https://www.chess.com/news/view/published-data-api" target="_blank" rel="noreferrer">PubAPI docs <ExternalLink /></a>
-              <a href="https://support.chess.com/en/articles/8608686-how-do-puzzles-work-on-chess-com" target="_blank" rel="noreferrer">Puzzle guide <ExternalLink /></a>
+              <a href="https://www.chess.com/news/view/published-data-api" target="_blank" rel="noreferrer">Chess.com API <ExternalLink /></a>
+              <a href="https://lichess.org/api#tag/Games/operation/apiGamesUser" target="_blank" rel="noreferrer">Lichess API <ExternalLink /></a>
+              <a href={LICHESS_PUZZLE_THEMES_URL} target="_blank" rel="noreferrer">Lichess themes <ExternalLink /></a>
             </div>
           </div>
         </section>

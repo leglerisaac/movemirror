@@ -1,25 +1,36 @@
-export type GameFilter = "all" | "rapid" | "blitz" | "bullet" | "daily"
+export type ChessPlatform = "chesscom" | "lichess"
+
+export type TimeClass =
+  | "ultraBullet"
+  | "bullet"
+  | "blitz"
+  | "rapid"
+  | "classical"
+  | "correspondence"
+  | "daily"
+
+export type GameFilter = "all" | TimeClass
 
 export type Outcome = "win" | "draw" | "loss"
 
-export interface ChessComPlayer {
+export interface GamePlayer {
   username: string
   rating: number
   result: string
   "@id"?: string
 }
 
-export interface ChessComGame {
+export interface ChessGame {
   url: string
   pgn: string
   fen?: string
   rated?: boolean
   end_time: number
   time_control: string
-  time_class: Exclude<GameFilter, "all">
+  time_class: TimeClass
   rules: string
-  white: ChessComPlayer
-  black: ChessComPlayer
+  white: GamePlayer
+  black: GamePlayer
   accuracies?: {
     white?: number
     black?: number
@@ -27,7 +38,8 @@ export interface ChessComGame {
   eco?: string
 }
 
-export interface ChessComProfile {
+export interface PlayerProfile {
+  platform: ChessPlatform
   username: string
   url: string
   avatar?: string
@@ -44,10 +56,9 @@ export interface FetchProgress {
 }
 
 export interface FetchGamesResult {
-  profile: ChessComProfile
-  games: ChessComGame[]
-  monthsScanned: number
-  availableArchives: number
+  profile: PlayerProfile
+  games: ChessGame[]
+  sourcesScanned: number
 }
 
 export interface RecordSummary {
@@ -74,6 +85,7 @@ export interface PuzzleRecommendation {
   reason: string
   practice: string
   signal: string
+  lichessTheme: string
   score: number
 }
 
@@ -129,6 +141,7 @@ export interface DiagnosticMetrics {
 }
 
 export interface AnalysisReport {
+  platform: ChessPlatform
   username: string
   requestedGames: number
   gamesAnalyzed: number

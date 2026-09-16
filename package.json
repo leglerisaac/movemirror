@@ -1,7 +1,7 @@
 {
   "name": "move-mirror",
   "version": "0.1.0",
-  "description": "A browser-based Chess.com strengths, weaknesses, and puzzle-theme analyzer.",
+  "description": "A browser-based Chess.com and Lichess strengths, weaknesses, and puzzle-theme analyzer.",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
