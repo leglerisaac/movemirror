@@ -92,6 +92,7 @@ const vite = await createServer({
 
 try {
   const { analyzeGames } = await vite.ssrLoadModule("/lib/analyze.ts")
+  const { buildDeepReport } = await vite.ssrLoadModule("/lib/deep-report.ts")
   const { fetchRecentGames: fetchRecentChessComGames } = await vite.ssrLoadModule(
     "/lib/chesscom.ts",
   )
@@ -133,6 +134,13 @@ try {
     }
     if (report.recommendations.some((item) => !item.lichessTheme)) {
       throw new Error("Every recommendation must map to a Lichess puzzle theme")
+    }
+    if (!Array.isArray(report.trainingPositions)) {
+      throw new Error("Expected an evidence-position collection")
+    }
+    const deep = buildDeepReport(report)
+    if (deep.plan.length !== 4 || deep.retestGames < 20) {
+      throw new Error("Expected a complete four-week improvement plan")
     }
 
     summaries.push({

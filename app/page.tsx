@@ -27,7 +27,21 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select"
 import { Progress } from "@/components/ui/progress"
+import {
+  CoachDashboard,
+  PricingSection,
+  ReportProductTools,
+} from "@/components/product-experience"
 import { analyzeGames } from "@/lib/analyze"
+import {
+  EMPTY_RUNTIME_CONFIG,
+  fetchEntitlement,
+  loadRemoteReports,
+  loadRuntimeConfig,
+  startCheckout,
+  trackEvent,
+  type RuntimeConfig,
+} from "@/lib/api"
 import {
   fetchRecentGames as fetchRecentChessComGames,
   normalizeUsername,
@@ -38,6 +52,13 @@ import {
   normalizeLichessUsername,
   validateLichessUsername,
 } from "@/lib/lichess"
+import {
+  readEntitlement,
+  readSavedReports,
+  saveEntitlement,
+  type Entitlement,
+  type SavedReport,
+} from "@/lib/report-storage"
 import type {
   AnalysisReport,
   ChessPlatform,
@@ -268,10 +289,22 @@ function FindingsColumn({
 function Report({
   report,
   profile,
+  filter,
+  entitlement,
+  runtimeConfig,
+  savedReports,
+  onSavedReportsChange,
+  onRequestProduct,
   onReset,
 }: {
   report: AnalysisReport
   profile: PlayerProfile
+  filter: GameFilter
+  entitlement: Entitlement
+  runtimeConfig: RuntimeConfig
+  savedReports: SavedReport[]
+  onSavedReportsChange: (reports: SavedReport[]) => void
+  onRequestProduct: (product: "deep" | "plus" | "coach") => void
   onReset: () => void
 }) {
   const accuracy = report.metrics.averageAccuracy
@@ -342,6 +375,16 @@ function Report({
         />
       </section>
 
+      <ReportProductTools
+        report={report}
+        filter={filter}
+        entitlement={entitlement}
+        config={runtimeConfig}
+        savedReports={savedReports}
+        onSavedReportsChange={onSavedReportsChange}
+        onRequestProduct={onRequestProduct}
+      />
+
       <section className="report-section overview-section">
         <div className="section-heading split-heading">
           <div>
@@ -401,7 +444,19 @@ function Report({
             <span className="section-kicker">Your training queue</span>
             <h2>Three puzzle themes to work next</h2>
           </div>
-          <a href={allPuzzlesUrl} target="_blank" rel="noreferrer" className="text-link">
+          <a
+            href={allPuzzlesUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-link"
+            onClick={() =>
+              trackEvent({
+                event: "puzzle_clicked",
+                platform: report.platform,
+                gameCount: report.gamesAnalyzed,
+              })
+            }
+          >
             {report.platform === "lichess" ? "Browse Lichess Puzzle Themes" : "Open Chess.com Custom Puzzles"} <ArrowUpRight />
           </a>
         </div>
@@ -424,6 +479,13 @@ function Report({
                   href={puzzleUrl(report.platform, recommendation)}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={() =>
+                    trackEvent({
+                      event: "puzzle_clicked",
+                      platform: report.platform,
+                      gameCount: report.gamesAnalyzed,
+                    })
+                  }
                   aria-label={`Practice ${recommendation.category} on ${sourceName}`}
                 >
                   {report.platform === "lichess" ? "Open this Lichess theme" : "Find the closest theme"} <ChevronRight />
@@ -547,7 +609,12 @@ export default function Home() {
   const [report, setReport] = useState<AnalysisReport | null>(null)
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [error, setError] = useState("")
+  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig>(EMPTY_RUNTIME_CONFIG)
+  const [entitlement, setEntitlement] = useState<Entitlement>({ tier: "free" })
+  const [savedReports, setSavedReports] = useState<SavedReport[]>([])
   const abortRef = useRef<AbortController | null>(null)
+  const entitlementRef = useRef<Entitlement>({ tier: "free" })
+  const checkoutInitializedRef = useRef(false)
 
   const runAnalysis = useCallback(
     async (overrides?: {
@@ -555,6 +622,7 @@ export default function Home() {
       username?: string
       count?: number
       filter?: GameFilter
+      entitlement?: Entitlement
     }) => {
       const requestedPlatform = overrides?.platform ?? platform
       const normalize =
@@ -564,6 +632,17 @@ export default function Home() {
       const requestedUsername = normalize(overrides?.username ?? username)
       const requestedCount = Math.round(overrides?.count ?? gameCount)
       const requestedFilter = overrides?.filter ?? filter
+      const requestedEntitlement = overrides?.entitlement ?? entitlementRef.current
+      const deepMatches =
+        requestedEntitlement.tier === "deep" &&
+        requestedEntitlement.deepReport?.platform === requestedPlatform &&
+        requestedEntitlement.deepReport.username.toLowerCase() === requestedUsername.toLowerCase()
+      const maxGames =
+        requestedEntitlement.tier === "plus" || requestedEntitlement.tier === "coach"
+          ? 200
+          : deepMatches
+            ? requestedEntitlement.deepReport?.gameCount ?? 150
+            : 30
 
       if (!validate(requestedUsername)) {
         const message = `Enter a valid ${platformLabel(requestedPlatform)} username (letters, numbers, dashes or underscores).`
@@ -577,8 +656,11 @@ export default function Home() {
         setStatus("error")
         throw new Error(message)
       }
-      if (requestedCount < 5 || requestedCount > 100) {
-        const message = "Choose between 5 and 100 games."
+      if (requestedCount < 5 || requestedCount > maxGames) {
+        const message =
+          maxGames === 30
+            ? "The free report analyzes up to 30 games. Choose 30 or fewer, or use a paid report for a larger sample."
+            : `Choose between 5 and ${maxGames} games for this access level.`
         setError(message)
         setStatus("error")
         throw new Error(message)
@@ -596,6 +678,11 @@ export default function Home() {
       setReport(null)
       setProfile(null)
       setProgress({ ...INITIAL_PROGRESS, label: "Starting the analysis…", percent: 2 })
+      trackEvent({
+        event: "analysis_started",
+        platform: requestedPlatform,
+        gameCount: requestedCount,
+      })
 
       try {
         const fetchGames =
@@ -632,6 +719,11 @@ export default function Home() {
         setReport(nextReport)
         setStatus("success")
         setProgress({ stage: "analysis", label: "Analysis complete", percent: 100 })
+        trackEvent({
+          event: "analysis_completed",
+          platform: requestedPlatform,
+          gameCount: nextReport.gamesAnalyzed,
+        })
         window.setTimeout(() => {
           document.getElementById("report")?.scrollIntoView({ behavior: "smooth", block: "start" })
         }, 80)
@@ -644,11 +736,76 @@ export default function Home() {
             : "Something went wrong while analyzing those games."
         setError(message)
         setStatus("error")
+        trackEvent({
+          event: "analysis_failed",
+          platform: requestedPlatform,
+          gameCount: requestedCount,
+        })
         throw caught
       }
     },
     [filter, gameCount, platform, username],
   )
+
+  useEffect(() => {
+    const hydration = window.setTimeout(() => {
+      setSavedReports(readSavedReports())
+      const stored = readEntitlement()
+      entitlementRef.current = stored
+      setEntitlement(stored)
+    }, 0)
+    void loadRuntimeConfig().then(setRuntimeConfig)
+    return () => window.clearTimeout(hydration)
+  }, [])
+
+  useEffect(() => {
+    if (checkoutInitializedRef.current) return
+    checkoutInitializedRef.current = true
+
+    const url = new URL(window.location.href)
+    const checkoutSession = url.searchParams.get("session_id")
+    const sessionId = checkoutSession || readEntitlement().sessionId
+    if (!sessionId) return
+
+    void fetchEntitlement(sessionId)
+      .then((verified) => {
+        const next: Entitlement = { ...verified, sessionId }
+        entitlementRef.current = next
+        setEntitlement(next)
+        saveEntitlement(next)
+        if (checkoutSession) {
+          url.searchParams.delete("checkout")
+          url.searchParams.delete("session_id")
+          window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+        }
+        if (
+          next.tier === "deep" &&
+          next.deepReport?.username &&
+          (next.deepReport.platform === "chesscom" || next.deepReport.platform === "lichess")
+        ) {
+          void runAnalysis({
+            platform: next.deepReport.platform,
+            username: next.deepReport.username,
+            count: next.deepReport.gameCount,
+            filter: next.deepReport.filter as GameFilter,
+            entitlement: next,
+          }).catch(() => undefined)
+        }
+        if (next.sessionId && (next.tier === "plus" || next.tier === "coach")) {
+          void loadRemoteReports(next.sessionId)
+            .then(({ reports }) => {
+              const merged = [...reports, ...readSavedReports()].filter(
+                (item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index,
+              )
+              setSavedReports(merged)
+            })
+            .catch(() => undefined)
+        }
+      })
+      .catch(() => {
+        if (checkoutSession) setError("Checkout could not be verified. No access was changed.")
+      })
+  }, [runAnalysis])
 
   useEffect(() => {
     const context = document.modelContext
@@ -672,7 +829,7 @@ export default function Home() {
                 description: "The chess platform that owns the account",
               },
               username: { type: "string", description: "Public account username" },
-              count: { type: "integer", minimum: 5, maximum: 100, default: 30 },
+              count: { type: "integer", minimum: 5, maximum: 30, default: 30 },
               filter: {
                 type: "string",
                 enum: [
@@ -762,6 +919,50 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
+  const deepMatchesInput =
+    entitlement.tier === "deep" &&
+    entitlement.deepReport?.platform === platform &&
+    entitlement.deepReport.username.toLowerCase() === username.trim().toLowerCase()
+  const inputGameLimit =
+    entitlement.tier === "plus" || entitlement.tier === "coach"
+      ? 200
+      : deepMatchesInput
+        ? entitlement.deepReport?.gameCount ?? 150
+        : 30
+
+  const requestProduct = (product: "deep" | "plus" | "coach") => {
+    if (!runtimeConfig.products[product]) {
+      document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })
+      return
+    }
+    if (product === "deep" && !report) {
+      setError("Run the free analysis first so the Deep Report is tied to the right account.")
+      setStatus("error")
+      document.getElementById("top")?.scrollIntoView({ behavior: "smooth" })
+      return
+    }
+    void startCheckout({
+      product,
+      platform: report?.platform,
+      username: report?.username,
+      filter,
+    }).catch((checkoutError) => {
+      setError(checkoutError instanceof Error ? checkoutError.message : "Checkout could not start.")
+      document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })
+    })
+  }
+
+  const analyzeSavedPlayer = (nextPlatform: ChessPlatform, nextUsername: string) => {
+    window.scrollTo({ top: 0, behavior: "smooth" })
+    void runAnalysis({
+      platform: nextPlatform,
+      username: nextUsername,
+      count: entitlement.tier === "coach" ? 60 : 30,
+      filter: "all",
+      entitlement,
+    }).catch(() => undefined)
+  }
+
   return (
     <main>
       <header className="site-header">
@@ -772,6 +973,8 @@ export default function Home() {
         <div className="header-meta">
           <span><LockKeyhole /> No login or password</span>
           <a href="#method">How it works</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#coach">For coaches</a>
         </div>
       </header>
 
@@ -843,7 +1046,7 @@ export default function Home() {
               <Input
                 type="number"
                 min={5}
-                max={100}
+                max={inputGameLimit}
                 step={5}
                 value={gameCount}
                 onChange={(event) => setGameCount(Number(event.target.value))}
@@ -874,8 +1077,8 @@ export default function Home() {
           </div>
 
           <div className="form-footer">
-            <span><LockKeyhole /> Everything runs in this browser. Nothing is saved.</span>
-            <span>Chess.com + Lichess · 5–100 games · Standard chess only</span>
+            <span><LockKeyhole /> Analysis runs in this browser. Saving is always your choice.</span>
+            <span>Free: 5–30 games · Paid: up to 200 · Standard chess only</span>
           </div>
 
           {status === "error" && error && (
@@ -890,7 +1093,17 @@ export default function Home() {
       <div className="page-shell">
         {status === "loading" && <LoadingPanel progress={progress} platform={platform} />}
         {status === "success" && report && profile && (
-          <Report report={report} profile={profile} onReset={reset} />
+          <Report
+            report={report}
+            profile={profile}
+            filter={filter}
+            entitlement={entitlement}
+            runtimeConfig={runtimeConfig}
+            savedReports={savedReports}
+            onSavedReportsChange={setSavedReports}
+            onRequestProduct={requestProduct}
+            onReset={reset}
+          />
         )}
         {(status === "idle" || status === "error") && !report && <EmptyPreview />}
 
@@ -917,8 +1130,8 @@ export default function Home() {
             <article>
               <span><CircleAlert /> What it cannot prove</span>
               <p>
-                It does not run a chess engine, so tactical labels are pattern-based
-                clues—not claims that a move was definitively a blunder.
+                The free report uses explainable pattern signals. Paid evidence positions
+                can run a local Stockfish check, but no automated score replaces human review.
               </p>
             </article>
           </div>
@@ -931,12 +1144,25 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        <PricingSection config={runtimeConfig} report={report} filter={filter} />
+        <CoachDashboard
+          entitlement={entitlement}
+          savedReports={savedReports}
+          onSavedReportsChange={setSavedReports}
+          onAnalyzePlayer={analyzeSavedPlayer}
+        />
       </div>
 
       <footer>
         <a href="#top" className="brand"><BrandMark /><span>MoveMirror</span></a>
         <p>Turn recent games into the next useful practice session.</p>
-        <a href="#top">Analyze a player <ArrowUpRight /></a>
+        <div className="footer-links">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="mailto:support@leglord.com">Support</a>
+          <a href="#top">Analyze a player <ArrowUpRight /></a>
+        </div>
       </footer>
     </main>
   )

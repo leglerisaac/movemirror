@@ -12,6 +12,8 @@ import type {
   PuzzleRecommendation,
   RecordSummary,
   SplitSummary,
+  TrainingPosition,
+  TrainingPositionCategory,
 } from "./types"
 
 const PIECE_VALUES: Record<PieceSymbol, number> = {
@@ -61,6 +63,13 @@ interface GameDiagnostic {
   convertedAdvantage: boolean
   deficitGame: boolean
   savedDeficit: boolean
+  trainingPositions: TrainingPosition[]
+}
+
+interface UserDecision {
+  fen: string
+  moveNumber: number
+  playedMove: string
 }
 
 interface RankedFinding extends Finding {
@@ -327,9 +336,13 @@ function parseGame(game: ChessGame, username: string): GameDiagnostic | null {
   const linePressureMoves: number[] = []
   let reachedEndgame = false
   let lastMove: Move | null = null
+  let lastUserDecision: UserDecision | null = null
+  const trainingPositions: TrainingPosition[] = []
+  const opening = openingName(game, headers)
 
   moves.forEach((sourceMove, index) => {
     const balanceBeforeMove = boardMaterial(replay, userColor).balance
+    const fenBeforeMove = replay.fen()
     let move: Move
     try {
       move = replay.move({
@@ -354,22 +367,70 @@ function parseGame(game: ChessGame, username: string): GameDiagnostic | null {
       if (fullMove <= 10 && centerPawnStarts.has(move.from)) movedCenterPawns.add(move.from)
       pendingLoose = loosePieceSquares(replay, userColor)
       pendingBaselineBalance = balanceBeforeMove
+      lastUserDecision = {
+        fen: fenBeforeMove,
+        moveNumber: fullMove,
+        playedMove: move.san,
+      }
     } else {
       const balanceAfterMove = boardMaterial(replay, userColor).balance
-      if (
+      const likelyHangingLoss =
         move.isCapture() &&
-        move.captured &&
-        PIECE_VALUES[move.captured] >= 3 &&
+        Boolean(move.captured) &&
+        PIECE_VALUES[move.captured as PieceSymbol] >= 3 &&
         pendingLoose.has(move.to) &&
         pendingBaselineBalance !== null &&
         balanceAfterMove <= pendingBaselineBalance - 2
-      ) {
+      if (likelyHangingLoss) {
         hangingLosses += 1
       }
-      if (createsFork(replay, move, userColor)) forkMoves.push(fullMove)
-      if (createsLinePressure(replay, move, userColor)) linePressureMoves.push(fullMove)
+      const fork = createsFork(replay, move, userColor)
+      const linePressure = createsLinePressure(replay, move, userColor)
+      if (fork) forkMoves.push(fullMove)
+      if (linePressure) linePressureMoves.push(fullMove)
+
+      const materialSwing =
+        pendingBaselineBalance === null
+          ? 0
+          : Math.max(0, pendingBaselineBalance - balanceAfterMove)
+      const category: TrainingPositionCategory | null = likelyHangingLoss
+        ? "Loose piece"
+        : fork
+          ? "Fork or double attack"
+          : linePressure
+            ? "Pin, skewer or x-ray"
+            : replay.isCheckmate()
+              ? "Mating threat"
+              : materialSwing >= 2
+                ? "Material swing"
+                : null
+
+      if (category && lastUserDecision && trainingPositions.length < 2) {
+        const reasons: Record<TrainingPositionCategory, string> = {
+          "Loose piece": "Your opponent immediately captured an undefended minor or major piece.",
+          "Fork or double attack": "The reply attacked at least two valuable targets at once.",
+          "Pin, skewer or x-ray": "The reply created pressure through a bishop, rook or queen line.",
+          "Mating threat": "The reply ended the game with checkmate.",
+          "Material swing": "The full move ended with a material loss of at least two points.",
+        }
+        trainingPositions.push({
+          id: `${game.url}#${lastUserDecision.moveNumber}-${lastUserDecision.playedMove}`,
+          fen: lastUserDecision.fen,
+          gameUrl: game.url,
+          opponent: opponent.username,
+          opening,
+          color: isWhite ? "White" : "Black",
+          moveNumber: lastUserDecision.moveNumber,
+          playedMove: lastUserDecision.playedMove,
+          opponentReply: move.san,
+          category,
+          reason: reasons[category],
+          materialSwing,
+        })
+      }
       pendingLoose = new Set<Square>()
       pendingBaselineBalance = null
+      lastUserDecision = null
     }
 
     if (isEndgame(replay)) reachedEndgame = true
@@ -426,7 +487,7 @@ function parseGame(game: ChessGame, username: string): GameDiagnostic | null {
       outcome: result,
       timeClass: titleCase(game.time_class),
       timeControl: game.time_control,
-      opening: openingName(game, headers),
+      opening,
       accuracy: typeof accuracy === "number" ? accuracy : null,
       endTime: game.end_time,
       plies: moves.length,
@@ -452,6 +513,7 @@ function parseGame(game: ChessGame, username: string): GameDiagnostic | null {
     convertedAdvantage: maxAdvantage >= 3 && result === "win",
     deficitGame: maxDeficit <= -3,
     savedDeficit: maxDeficit <= -3 && result !== "loss",
+    trainingPositions,
   }
 }
 
@@ -951,6 +1013,10 @@ export function analyzeGames(
       .map((game) => game.summary)
       .sort((a, b) => b.endTime - a.endTime)
       .slice(0, 8),
+    trainingPositions: diagnostics
+      .flatMap((game) => game.trainingPositions)
+      .sort((a, b) => b.materialSwing - a.materialSwing || a.moveNumber - b.moveNumber)
+      .slice(0, 12),
     metrics,
   }
 }

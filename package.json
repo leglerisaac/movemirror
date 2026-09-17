@@ -8,12 +8,14 @@
   },
   "scripts": {
     "install:ci": "bash scripts/install-pnpm.sh",
+    "predev": "node scripts/prepare-stockfish.mjs",
     "dev": "node scripts/run-framework.mjs dev",
+    "prebuild": "node scripts/prepare-stockfish.mjs",
     "build": "node scripts/run-framework.mjs build",
     "pages:prepare": "node scripts/prepare-pages.mjs",
-    "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "test:smoke": "node scripts/smoke-analysis.mjs",
+    "start": "wrangler dev --config wrangler.jsonc --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern public/stockfish",
+    "test:smoke": "node scripts/smoke-analysis.mjs && node scripts/smoke-worker.mjs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
@@ -39,6 +41,7 @@
     "react-resizable-panels": "^4.12.2",
     "recharts": "^3.8.0",
     "sonner": "^2.0.8",
+    "stockfish.wasm": "0.10.0",
     "tailwind-merge": "3.6.0",
     "vaul": "^1.1.2",
     "zod": "^3.25.76"

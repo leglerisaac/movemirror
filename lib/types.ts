@@ -89,6 +89,28 @@ export interface PuzzleRecommendation {
   score: number
 }
 
+export type TrainingPositionCategory =
+  | "Loose piece"
+  | "Fork or double attack"
+  | "Pin, skewer or x-ray"
+  | "Mating threat"
+  | "Material swing"
+
+export interface TrainingPosition {
+  id: string
+  fen: string
+  gameUrl: string
+  opponent: string
+  opening: string
+  color: "White" | "Black"
+  moveNumber: number
+  playedMove: string
+  opponentReply: string
+  category: TrainingPositionCategory
+  reason: string
+  materialSwing: number
+}
+
 export interface PhaseSummary {
   phase: "Opening" | "Middlegame" | "Endgame"
   value: number | null
@@ -160,5 +182,6 @@ export interface AnalysisReport {
   phases: PhaseSummary[]
   openings: OpeningSummary[]
   recentGames: GameSummary[]
+  trainingPositions: TrainingPosition[]
   metrics: DiagnosticMetrics
 }

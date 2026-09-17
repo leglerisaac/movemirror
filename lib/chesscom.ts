@@ -113,11 +113,15 @@ function jsonp<T>(url: string, signal?: AbortSignal): Promise<T> {
 
 async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   let fetchFailure: unknown
+  const headers: Record<string, string> = { Accept: "application/json" }
+  if (typeof window === "undefined") {
+    headers["User-Agent"] = "MoveMirror/1.0 (+https://chess.leglord.com)"
+  }
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const response = await fetch(url, {
-        headers: { Accept: "application/json" },
+        headers,
         signal,
       })
 

@@ -68,10 +68,14 @@ function abortError() {
 
 async function request(url: string, accept: string, signal?: AbortSignal) {
   let response: Response
+  const headers: Record<string, string> = { Accept: accept }
+  if (typeof window === "undefined") {
+    headers["User-Agent"] = "MoveMirror/1.0 (+https://chess.leglord.com)"
+  }
 
   try {
     response = await fetch(url, {
-      headers: { Accept: accept },
+      headers,
       signal,
     })
   } catch (error) {

@@ -1,15 +1,23 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-const assetRoot = process.env.GITHUB_ACTIONS === "true" ? "/movemirror" : "";
-
 export const metadata: Metadata = {
+  metadataBase: new URL("https://chess.leglord.com"),
   title: "MoveMirror — Chess.com & Lichess Game Analyzer",
   description:
     "Replay recent Chess.com or Lichess games to find recurring strengths, weaknesses, and the puzzle themes worth training next.",
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: "MoveMirror — Turn your chess games into a training plan",
+    description:
+      "Find recurring strengths, weaknesses, evidence positions and the puzzle themes worth training next.",
+    url: "/",
+    siteName: "MoveMirror",
+    type: "website",
+  },
   icons: {
-    icon: `${assetRoot}/favicon.svg`,
-    shortcut: `${assetRoot}/favicon.svg`,
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
   },
 };
 

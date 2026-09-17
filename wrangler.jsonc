@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "movemirror",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "vars": {
+    "PUBLIC_ORIGIN": "https://chess.leglord.com",
+    "SUPPORT_EMAIL": "support@leglord.com"
+  },
+  "triggers": {
+    "crons": ["0 16 * * 1"]
+  },
+  "observability": {
+    "enabled": true
+  }
+
+  // After running `wrangler d1 create movemirror`, add the binding below.
+  // "d1_databases": [
+  //   {
+  //     "binding": "DB",
+  //     "database_name": "movemirror",
+  //     "database_id": "PASTE_THE_RETURNED_DATABASE_ID"
+  //   }
+  // ]
+}
