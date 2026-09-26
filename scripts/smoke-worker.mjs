@@ -35,8 +35,11 @@ try {
     new Request("https://chess.leglord.com/"),
     env,
   )
-  if (assetResponse.headers.get("Cross-Origin-Opener-Policy") !== "same-origin") {
-    throw new Error("Static responses must include the Stockfish isolation headers")
+  if (
+    assetResponse.headers.get("X-Content-Type-Options") !== "nosniff" ||
+    assetResponse.headers.get("X-Frame-Options") !== "DENY"
+  ) {
+    throw new Error("Static responses must include the application security headers")
   }
 
   const waitlistResponse = await worker.fetch(

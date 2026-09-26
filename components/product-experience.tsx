@@ -37,6 +37,7 @@ import {
   type RuntimeConfig,
 } from "@/lib/api"
 import { buildDeepReport, reportSummary } from "@/lib/deep-report"
+import { applyEngineAnalysis } from "@/lib/engine-insights"
 import {
   deleteSavedReport,
   previousReportFor,
@@ -46,11 +47,11 @@ import {
   type SavedReport,
 } from "@/lib/report-storage"
 import {
-  analyzeTrainingPositions,
+  analyzeGamesWithEngine,
   engineSupported,
-  type EngineFinding,
+  type EngineAnalysisProgress,
 } from "@/lib/stockfish"
-import type { AnalysisReport, GameFilter, TrainingPosition } from "@/lib/types"
+import type { AnalysisReport, ChessGame, GameFilter, TrainingPosition } from "@/lib/types"
 
 type Product = "deep" | "plus" | "coach"
 
@@ -64,7 +65,7 @@ function hasDeepAccess(entitlement: Entitlement, report: AnalysisReport) {
   )
 }
 
-function pieceGrid(position: TrainingPosition) {
+function pieceGrid(position: Pick<TrainingPosition, "fen" | "color">) {
   const pieces: Record<string, string> = {
     K: "♔",
     Q: "♕",
@@ -99,7 +100,7 @@ function pieceGrid(position: TrainingPosition) {
   )
 }
 
-function PositionBoard({ position }: { position: TrainingPosition }) {
+function PositionBoard({ position }: { position: Pick<TrainingPosition, "fen" | "color" | "playedMove"> }) {
   return (
     <div className="position-board" aria-label={`Position before ${position.playedMove}`}>
       {pieceGrid(position).map((square) => (
@@ -138,31 +139,41 @@ function TrendCard({
   )
 }
 
+function engineEvaluation(value: number) {
+  if (Math.abs(value) >= 50_000) return value > 0 ? "Winning mate" : "Facing mate"
+  const pawns = value / 100
+  return `${pawns >= 0 ? "+" : ""}${pawns.toFixed(1)}`
+}
+
 export function ReportProductTools({
   report,
+  games,
   filter,
   entitlement,
   config,
   savedReports,
   onSavedReportsChange,
   onRequestProduct,
+  onReportChange,
 }: {
   report: AnalysisReport
+  games: ChessGame[]
   filter: GameFilter
   entitlement: Entitlement
   config: RuntimeConfig
   savedReports: SavedReport[]
   onSavedReportsChange: (reports: SavedReport[]) => void
   onRequestProduct: (product: Product) => void
+  onReportChange: (report: AnalysisReport) => void
 }) {
   const [notice, setNotice] = useState("")
   const [saving, setSaving] = useState(false)
   const [monitoring, setMonitoring] = useState(false)
   const [weeklyEnabled, setWeeklyEnabled] = useState(false)
-  const [engineFindings, setEngineFindings] = useState<EngineFinding[]>([])
-  const [engineProgress, setEngineProgress] = useState(0)
+  const [engineProgress, setEngineProgress] = useState<EngineAnalysisProgress | null>(null)
   const [engineError, setEngineError] = useState("")
   const [engineAvailable, setEngineAvailable] = useState(false)
+  const engineAbortRef = useRef<AbortController | null>(null)
   const deep = useMemo(() => buildDeepReport(report), [report])
   const unlocked = hasDeepAccess(entitlement, report)
   const previous = previousReportFor(report, savedReports)
@@ -175,6 +186,8 @@ export function ReportProductTools({
     const update = window.setTimeout(() => setEngineAvailable(engineSupported()), 0)
     return () => window.clearTimeout(update)
   }, [])
+
+  useEffect(() => () => engineAbortRef.current?.abort(), [])
 
   const copySummary = async () => {
     await navigator.clipboard.writeText(reportSummary(report))
@@ -239,17 +252,40 @@ export function ReportProductTools({
 
   const runEngine = async () => {
     setEngineError("")
-    setEngineProgress(0)
+    const controller = new AbortController()
+    engineAbortRef.current?.abort()
+    engineAbortRef.current = controller
+    setEngineProgress({
+      complete: 0,
+      total: 1,
+      percent: 0,
+      game: 1,
+      games: Math.min(8, games.length),
+      label: "Starting Stockfish…",
+    })
     try {
-      const findings = await analyzeTrainingPositions(
-        report.trainingPositions,
-        (complete) => setEngineProgress(complete),
-      )
-      setEngineFindings(findings)
+      const analysis = await analyzeGamesWithEngine(games, report.username, {
+        maxGames: 8,
+        maxMoves: 200,
+        depth: 10,
+        signal: controller.signal,
+        onProgress: setEngineProgress,
+      })
+      onReportChange(applyEngineAnalysis(report, analysis))
+      setNotice(`Engine analysis complete: ${analysis.movesAnalyzed} decisions across ${analysis.gamesAnalyzed} games.`)
     } catch (error) {
-      setEngineError(error instanceof Error ? error.message : "Engine review failed.")
+      if (error instanceof Error && error.name === "AbortError") {
+        setNotice("Engine analysis cancelled.")
+      } else {
+        setEngineError(error instanceof Error ? error.message : "Engine review failed.")
+      }
+    } finally {
+      if (engineAbortRef.current === controller) engineAbortRef.current = null
+      setEngineProgress(null)
     }
   }
+
+  const cancelEngine = () => engineAbortRef.current?.abort()
 
   return (
     <>
@@ -289,6 +325,106 @@ export function ReportProductTools({
           </div>
         </section>
       )}
+
+      <section className={`report-section engine-analysis-section ${unlocked ? "unlocked" : "locked"}`}>
+        <div className="section-heading split-heading">
+          <div>
+            <span className="section-kicker">Stockfish game analysis</span>
+            <h2>Measure the decisions, not just the result</h2>
+          </div>
+          {unlocked ? (
+            <div className="engine-actions no-print">
+              {engineProgress ? (
+                <Button variant="outline" onClick={cancelEngine}><Trash2 /> Cancel</Button>
+              ) : (
+                <Button onClick={runEngine} disabled={!engineAvailable || games.length === 0}>
+                  <Gauge /> {report.engineAnalysis ? "Run again" : "Analyze with Stockfish"}
+                </Button>
+              )}
+            </div>
+          ) : (
+            <Button onClick={() => onRequestProduct("deep")}><LockKeyhole /> Unlock engine analysis</Button>
+          )}
+        </div>
+
+        {!unlocked && (
+          <p className="engine-intro">Deep Report checks up to 200 decisions from eight recent games, compares every played move with Stockfish, and uses the confirmed misses to refine your training queue.</p>
+        )}
+
+        {unlocked && engineProgress && (
+          <div className="engine-progress" role="status" aria-live="polite">
+            <div><Loader2 className="spin" /><strong>{engineProgress.label}</strong><span>{engineProgress.percent}%</span></div>
+            <div className="engine-progress-track"><span style={{ width: `${engineProgress.percent}%` }} /></div>
+            <p>{engineProgress.complete} of {engineProgress.total} decisions checked. Keep this tab open.</p>
+          </div>
+        )}
+
+        {unlocked && !report.engineAnalysis && !engineProgress && (
+          <div className="engine-empty">
+            <Gauge />
+            <div>
+              <strong>Local, private, and substantially deeper</strong>
+              <p>Stockfish runs in this browser. No positions are sent to MoveMirror, and the analysis can be cancelled at any time.</p>
+            </div>
+          </div>
+        )}
+
+        {report.engineAnalysis && (
+          <>
+            <div className="engine-stat-grid">
+              <article><span>Engine precision</span><strong>{report.engineAnalysis.precision.toFixed(1)}%</strong><small>Move-quality index</small></article>
+              <article><span>Average loss</span><strong>{report.engineAnalysis.averageCentipawnLoss.toFixed(1)}</strong><small>Centipawns per move</small></article>
+              <article><span>Mistakes</span><strong>{report.engineAnalysis.mistakes}</strong><small>120–249 cp</small></article>
+              <article><span>Blunders</span><strong>{report.engineAnalysis.blunders}</strong><small>250+ cp</small></article>
+            </div>
+            <div className="engine-phase-grid">
+              {report.engineAnalysis.phases.map((phase) => (
+                <article key={phase.phase}>
+                  <div><strong>{phase.phase}</strong><span>{phase.precision.toFixed(1)}% precision</span></div>
+                  <div className="engine-phase-track"><span style={{ width: `${phase.precision}%` }} /></div>
+                  <p>{phase.averageCentipawnLoss.toFixed(1)} ACPL · {phase.blunders} blunders · {phase.moves} moves</p>
+                </article>
+              ))}
+            </div>
+            <p className="engine-coverage">{report.engineAnalysis.engine}, depth {report.engineAnalysis.depth} · {report.engineAnalysis.movesAnalyzed} decisions across {report.engineAnalysis.gamesAnalyzed} recent games. “Precision” is MoveMirror’s engine-derived index, not an official platform accuracy score.</p>
+            {report.engineAnalysis.criticalMoments.length > 0 && (
+              <div className="critical-moments">
+                <div className="critical-heading">
+                  <div><span>Largest evaluation swings</span><h3>Critical moments worth replaying</h3></div>
+                  <small>Ranked by centipawn loss</small>
+                </div>
+                <div className="critical-grid">
+                  {report.engineAnalysis.criticalMoments.slice(0, 6).map((moment) => (
+                    <article className="critical-card" key={moment.id}>
+                      <PositionBoard position={moment} />
+                      <div>
+                        <div className="critical-card-topline">
+                          <Badge variant="outline" className={`engine-label ${moment.classification.toLowerCase()}`}>{moment.classification}</Badge>
+                          <strong>{moment.centipawnLoss} cp</strong>
+                        </div>
+                        <h4>Move {moment.moveNumber} vs {moment.opponent}</h4>
+                        <p>{moment.reason}</p>
+                        <dl>
+                          <div><dt>Played</dt><dd>{moment.playedMove}</dd></div>
+                          <div><dt>Best</dt><dd>{moment.bestMoveSan}</dd></div>
+                          <div><dt>Best reply</dt><dd>{moment.punishmentMoveSan}</dd></div>
+                          <div><dt>Evaluation</dt><dd>{engineEvaluation(moment.evaluationBefore)} → {engineEvaluation(moment.evaluationAfter)}</dd></div>
+                        </dl>
+                        <a href={moment.gameUrl} target="_blank" rel="noreferrer">Open game <ExternalLink /></a>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {unlocked && !engineAvailable && (
+          <p className="engine-note">This browser cannot run the local Stockfish WebAssembly engine. Try a current desktop or mobile browser.</p>
+        )}
+        {engineError && <p className="engine-error" role="alert">{engineError}</p>}
+      </section>
 
       <section className={`report-section deep-report-section ${unlocked ? "unlocked" : "locked"}`}>
         <div className="section-heading split-heading">
@@ -338,12 +474,7 @@ export function ReportProductTools({
             <span className="section-kicker">Evidence positions</span>
             <h2>Practice decisions from your own games</h2>
           </div>
-          {unlocked && report.trainingPositions.length > 0 && (
-            <Button variant="outline" onClick={runEngine} disabled={engineProgress > 0 && engineFindings.length === 0} className="no-print">
-              {engineProgress > 0 && engineFindings.length === 0 ? <Loader2 className="spin" /> : <Gauge />}
-              {engineFindings.length ? "Engine review complete" : "Run Stockfish review"}
-            </Button>
-          )}
+          {report.engineAnalysis && <Badge className="access-badge"><Check /> Engine refined</Badge>}
         </div>
         {report.trainingPositions.length === 0 ? (
           <div className="evidence-empty">
@@ -353,7 +484,9 @@ export function ReportProductTools({
         ) : (
           <div className="evidence-grid">
             {report.trainingPositions.slice(0, unlocked ? 8 : 2).map((position) => {
-              const engine = engineFindings.find((item) => item.positionId === position.id)
+              const engine = report.engineAnalysis?.criticalMoments.find(
+                (item) => item.gameUrl === position.gameUrl && item.moveNumber === position.moveNumber,
+              )
               return (
                 <article className="evidence-card" key={position.id}>
                   <PositionBoard position={position} />
@@ -364,7 +497,7 @@ export function ReportProductTools({
                     <dl>
                       <div><dt>You played</dt><dd>{position.playedMove}</dd></div>
                       <div><dt>Reply</dt><dd>{position.opponentReply}</dd></div>
-                      {engine && <div><dt>Engine prefers</dt><dd>{engine.bestMoveSan} · {engine.evaluation}</dd></div>}
+                      {engine && <div><dt>Engine prefers</dt><dd>{engine.bestMoveSan} · {engineEvaluation(engine.evaluationBefore)}</dd></div>}
                     </dl>
                     <a href={position.gameUrl} target="_blank" rel="noreferrer">Open original game <ExternalLink /></a>
                   </div>
@@ -373,10 +506,6 @@ export function ReportProductTools({
             })}
           </div>
         )}
-        {unlocked && !engineAvailable && (
-          <p className="engine-note">Stockfish activates after deployment at chess.leglord.com with the included browser-security headers.</p>
-        )}
-        {engineError && <p className="engine-error" role="alert">{engineError}</p>}
       </section>
     </>
   )
@@ -390,7 +519,7 @@ const PRODUCTS = [
     price: "$7",
     cadence: "one time",
     description: "A focused plan for one account—ideal before committing to a subscription.",
-    features: ["150-game sample", "8 Stockfish-reviewed positions", "Opening-specific leak", "Four-week plan", "Printable PDF"],
+    features: ["150-game pattern sample", "200 Stockfish-tested decisions", "Phase precision & critical moments", "Four-week plan", "Printable PDF"],
   },
   {
     id: "plus" as const,

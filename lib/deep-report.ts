@@ -97,12 +97,20 @@ export function buildDeepReport(report: AnalysisReport): DeepReport {
 
 export function reportSummary(report: AnalysisReport) {
   const source = report.platform === "lichess" ? "Lichess" : "Chess.com"
-  return [
+  const summary = [
     `MoveMirror report for @${report.username} on ${source}`,
     `${report.gamesAnalyzed} games · ${report.record.scorePct}% result score · ${report.averageRating} average rating`,
     `Strengths: ${report.strengths.map((item) => item.title).join(", ")}`,
     `Improve: ${report.weaknesses.map((item) => item.title).join(", ")}`,
     `Train next: ${report.recommendations.map((item) => item.category).join(" → ")}`,
     "https://chess.leglord.com",
-  ].join("\n")
+  ]
+  if (report.engineAnalysis) {
+    summary.splice(
+      2,
+      0,
+      `Stockfish: ${report.engineAnalysis.precision.toFixed(1)}% precision · ${report.engineAnalysis.averageCentipawnLoss.toFixed(1)} ACPL · ${report.engineAnalysis.blunders} blunders`,
+    )
+  }
+  return summary.join("\n")
 }

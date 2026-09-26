@@ -111,6 +111,75 @@ export interface TrainingPosition {
   materialSwing: number
 }
 
+export type EngineMoveClassification =
+  | "Best"
+  | "Good"
+  | "Inaccuracy"
+  | "Mistake"
+  | "Blunder"
+
+export type EnginePhase = "Opening" | "Middlegame" | "Endgame"
+
+export interface EnginePhaseSummary {
+  phase: EnginePhase
+  moves: number
+  averageCentipawnLoss: number
+  precision: number
+  inaccuracies: number
+  mistakes: number
+  blunders: number
+}
+
+export interface EngineGameSummary {
+  gameUrl: string
+  opponent: string
+  moves: number
+  averageCentipawnLoss: number
+  precision: number
+  inaccuracies: number
+  mistakes: number
+  blunders: number
+}
+
+export interface EngineCriticalMoment {
+  id: string
+  fen: string
+  gameUrl: string
+  opponent: string
+  opening: string
+  color: "White" | "Black"
+  phase: EnginePhase
+  moveNumber: number
+  playedMove: string
+  bestMove: string
+  bestMoveSan: string
+  punishmentMove: string
+  punishmentMoveSan: string
+  evaluationBefore: number
+  evaluationAfter: number
+  centipawnLoss: number
+  classification: EngineMoveClassification
+  category: string
+  lichessTheme: string
+  reason: string
+}
+
+export interface EngineAnalysisSummary {
+  engine: "Stockfish 19 Lite"
+  depth: number
+  gamesAnalyzed: number
+  movesAnalyzed: number
+  averageCentipawnLoss: number
+  precision: number
+  inaccuracies: number
+  mistakes: number
+  blunders: number
+  phases: EnginePhaseSummary[]
+  games: EngineGameSummary[]
+  criticalMoments: EngineCriticalMoment[]
+  completedAt: number
+}
+
 export interface PhaseSummary {
   phase: "Opening" | "Middlegame" | "Endgame"
   value: number | null
@@ -184,4 +253,5 @@ export interface AnalysisReport {
   recentGames: GameSummary[]
   trainingPositions: TrainingPosition[]
   metrics: DiagnosticMetrics
+  engineAnalysis?: EngineAnalysisSummary
 }

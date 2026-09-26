@@ -24,7 +24,9 @@ export default function PrivacyPage() {
         <p>
           When you enter a username, your browser requests that account&apos;s public profile and
           games from Chess.com or Lichess. The free report is calculated on your device. We do
-          not receive the username or PGNs through our analytics endpoint.
+          not receive the username or PGNs through our analytics endpoint. When you start a paid
+          Stockfish analysis, the engine also runs on your device; positions are not sent to an
+          engine server.
         </p>
 
         <h2>Local saves</h2>
@@ -40,7 +42,8 @@ export default function PrivacyPage() {
           selected public username, platform and game filter are attached to the Stripe checkout
           so the correct report can be unlocked. If you enable cloud history or weekly reports,
           we store your Stripe customer identifier, email address, selected public chess accounts
-          and generated report snapshots in Cloudflare D1.
+          and generated report snapshots in Cloudflare D1. A saved snapshot can include the compact
+          engine summary and critical positions shown in the report, but not the complete downloaded PGNs.
         </p>
 
         <h2>Email delivery</h2>

@@ -11,7 +11,8 @@ MoveMirror turns a Chess.com or Lichess username and a recent-game sample into a
 - Most-played openings and an auditable recent-games table
 - Three ranked puzzle themes with a concrete weekly practice dose
 - Evidence positions captured from the player's own decisions
-- Optional local Stockfish review of selected paid-report positions
+- Local Stockfish analysis of up to 200 decisions across eight recent games
+- Engine-derived precision, average centipawn loss, phase splits and ranked critical moments
 - A generated four-week training plan and opening-specific leak
 - Printable/PDF reports, copied summaries, local snapshots, and trend comparisons
 - Player Plus weekly refreshes and a coach roster dashboard
@@ -19,7 +20,7 @@ MoveMirror turns a Chess.com or Lichess username and a recent-game sample into a
 ## Product tiers
 
 - **Free:** up to 30 games, core findings, phase metrics and puzzle links
-- **Deep Report ($7 once):** 150 games, full four-week plan and up to eight Stockfish-reviewed evidence positions
+- **Deep Report ($7 once):** 150-game pattern sample, full four-week plan and Stockfish analysis of up to 200 decisions across eight recent games
 - **Player Plus ($5.99/month):** saved history, progress comparisons and one weekly monitored account
 - **Coach ($19/month):** up to 30 monitored accounts and 60 cloud report snapshots
 
@@ -29,7 +30,7 @@ Checkout is deliberately disabled until Stripe price IDs and a secret key are co
 
 MoveMirror uses Chess.com's read-only [Published-Data API](https://www.chess.com/news/view/published-data-api) and Lichess's public [game export API](https://lichess.org/api#tag/Games/operation/apiGamesUser). The app only analyzes standard chess. Chess.com samples can be filtered by rapid, blitz, bullet, or daily; Lichess samples also support UltraBullet, classical, and correspondence.
 
-The core report is a pattern analyzer, not a replacement for engine review. It detects explainable board signals such as persistent material drops, an undefended piece captured on the next move, double attacks against valuable targets, and vulnerable piece line-ups. Existing accuracy is displayed when the selected platform provides it. A paid Deep Report can run Stockfish locally on up to eight evidence positions; that engine step requires cross-origin isolation headers and never uploads the position to MoveMirror.
+The free report is an explainable pattern analyzer. It detects signals such as persistent material drops, an undefended piece captured on the next move, double attacks, and vulnerable piece line-ups. Existing accuracy is displayed when the selected platform provides it. A paid Deep Report can run Stockfish locally across up to 200 player decisions from eight recent games. It calculates a move-quality index, average centipawn loss, phase performance, mistakes, blunders and critical positions, then uses the confirmed misses to refine the report's strengths, weaknesses and puzzle queue. The engine runs in a Web Worker and never uploads positions to MoveMirror.
 
 Chess.com updated its puzzle-theme taxonomy in September 2026. Recommendations therefore use durable, plain-language categories and send users to [Custom Puzzles](https://www.chess.com/puzzles/learning) to select the closest current theme.
 
@@ -76,7 +77,7 @@ GitHub Pages is no longer the production target because GitHub does not permit i
 - React 19 + TypeScript
 - Next-compatible app structure built with Vinext/Vite
 - [`chess.js`](https://github.com/jhlywa/chess.js) for legal PGN replay and board inspection
-- [`stockfish.wasm`](https://github.com/niklasf/stockfish.wasm) for optional in-browser engine review (GPLv3)
+- [Stockfish.js 19](https://github.com/nmrugg/stockfish.js) lite NNUE for private in-browser engine analysis (GPLv3)
 - Chess.com PubAPI and Lichess API for public profiles and games
 - Cloudflare Workers, static assets, Cron Triggers and D1
 - Stripe Checkout and Billing Portal

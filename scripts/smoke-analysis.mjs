@@ -93,6 +93,12 @@ const vite = await createServer({
 try {
   const { analyzeGames } = await vite.ssrLoadModule("/lib/analyze.ts")
   const { buildDeepReport } = await vite.ssrLoadModule("/lib/deep-report.ts")
+  const { applyEngineAnalysis } = await vite.ssrLoadModule("/lib/engine-insights.ts")
+  const {
+    classifyCentipawnLoss,
+    prepareEnginePositions,
+    summarizeEngineMoments,
+  } = await vite.ssrLoadModule("/lib/stockfish.ts")
   const { fetchRecentGames: fetchRecentChessComGames } = await vite.ssrLoadModule(
     "/lib/chesscom.ts",
   )
@@ -137,6 +143,48 @@ try {
     }
     if (!Array.isArray(report.trainingPositions)) {
       throw new Error("Expected an evidence-position collection")
+    }
+    const enginePositions = prepareEnginePositions(
+      result.games,
+      result.profile.username,
+      2,
+      20,
+    )
+    if (enginePositions.length !== 20 || enginePositions.some((position) => !position.afterFen)) {
+      throw new Error("Expected bounded before/after positions for full-game engine analysis")
+    }
+    if (
+      classifyCentipawnLoss(19) !== "Best" ||
+      classifyCentipawnLoss(60) !== "Inaccuracy" ||
+      classifyCentipawnLoss(250) !== "Blunder"
+    ) {
+      throw new Error("Engine move classifications do not match their thresholds")
+    }
+    const losses = [0, 140, 320]
+    const engineMoments = enginePositions.slice(0, 3).map((position, index) => ({
+      ...position,
+      bestMove: "g1f3",
+      bestMoveSan: "Nf3",
+      punishmentMove: "d8h4",
+      punishmentMoveSan: "Qh4",
+      evaluationBefore: 40,
+      evaluationAfter: 40 - losses[index],
+      centipawnLoss: losses[index],
+      classification: classifyCentipawnLoss(losses[index]),
+      category: index === 2 ? "Loose & Hanging Pieces" : "Defensive Moves",
+      lichessTheme: index === 2 ? "hangingPiece" : "defensiveMove",
+      reason: "Smoke-test engine insight.",
+    }))
+    const engineSummary = summarizeEngineMoments(engineMoments, 10)
+    const refinedReport = applyEngineAnalysis(report, engineSummary)
+    if (
+      engineSummary.movesAnalyzed !== 3 ||
+      engineSummary.mistakes !== 1 ||
+      engineSummary.blunders !== 1 ||
+      !refinedReport.engineAnalysis ||
+      !refinedReport.weaknesses.some((finding) => finding.title === "Engine-confirmed errors")
+    ) {
+      throw new Error("Engine summary did not refine the report")
     }
     const deep = buildDeepReport(report)
     if (deep.plan.length !== 4 || deep.retestGames < 20) {

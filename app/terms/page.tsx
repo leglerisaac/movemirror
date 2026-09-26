@@ -23,8 +23,9 @@ export default function TermsPage() {
         <p>
           MoveMirror analyzes public Chess.com and Lichess games to surface training patterns.
           Its findings are educational estimates, not official platform accuracy scores or a
-          guarantee of rating improvement. Pattern labels can be wrong and should be checked
-          against the original game and, where available, engine review.
+          guarantee of rating improvement. MoveMirror&apos;s engine precision score is its own
+          Stockfish-derived index, not Chess.com or Lichess accuracy. Pattern labels and engine
+          classifications can be wrong and should be checked against the original game.
         </p>
 
         <h2>Acceptable use</h2>

@@ -75,13 +75,13 @@ chess.leglord.com
 
 Cloudflare will create the proxied DNS record and certificate. Do not create a second Tunnel route for this hostname; this app is served directly by Workers.
 
-Verify these response headers at the custom domain before testing Stockfish:
+Verify the production response before testing Stockfish:
 
 ```bash
 curl -I https://chess.leglord.com
 ```
 
-The response must include `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`.
+The response must include `X-Content-Type-Options: nosniff`. The included Stockfish 19 lite engine is single-threaded, so it does not require cross-origin isolation and will not block external profile images.
 
 ## 6. Test the complete purchase flow
 
@@ -90,7 +90,7 @@ In Stripe test mode:
 1. Run a free 30-game report.
 2. Purchase a $7 Deep Report with Stripe's `4242 4242 4242 4242` test card.
 3. Confirm the return URL automatically reruns the purchased account with 150 games.
-4. Run the Stockfish evidence review and print the report to PDF.
+4. Run the full Stockfish game analysis, inspect phase precision and critical moments, then print the report to PDF.
 5. Purchase Player Plus and enable weekly email.
 6. Confirm a report saves locally and in D1.
 7. Open the Stripe billing portal and cancel the test subscription.

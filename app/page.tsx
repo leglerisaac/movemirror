@@ -61,6 +61,7 @@ import {
 } from "@/lib/report-storage"
 import type {
   AnalysisReport,
+  ChessGame,
   ChessPlatform,
   FetchProgress,
   GameFilter,
@@ -288,6 +289,7 @@ function FindingsColumn({
 
 function Report({
   report,
+  games,
   profile,
   filter,
   entitlement,
@@ -295,9 +297,11 @@ function Report({
   savedReports,
   onSavedReportsChange,
   onRequestProduct,
+  onReportChange,
   onReset,
 }: {
   report: AnalysisReport
+  games: ChessGame[]
   profile: PlayerProfile
   filter: GameFilter
   entitlement: Entitlement
@@ -305,9 +309,11 @@ function Report({
   savedReports: SavedReport[]
   onSavedReportsChange: (reports: SavedReport[]) => void
   onRequestProduct: (product: "deep" | "plus" | "coach") => void
+  onReportChange: (report: AnalysisReport) => void
   onReset: () => void
 }) {
   const accuracy = report.metrics.averageAccuracy
+  const engine = report.engineAnalysis
   const period = `${formatDate(report.dateFrom)} – ${formatDate(report.dateTo)}`
   const sourceName = platformLabel(report.platform)
   const allPuzzlesUrl =
@@ -365,10 +371,12 @@ function Report({
           note={`Opponents averaged ${report.averageOpponentRating}`}
         />
         <StatCard
-          label={`${sourceName} accuracy`}
-          value={accuracy === null ? "—" : accuracy.toFixed(1)}
+          label={engine ? "Engine precision" : `${sourceName} accuracy`}
+          value={engine ? `${engine.precision.toFixed(1)}%` : accuracy === null ? "—" : accuracy.toFixed(1)}
           note={
-            accuracy === null
+            engine
+              ? `${engine.movesAnalyzed} Stockfish-tested decisions`
+              : accuracy === null
               ? "Not available in this sample"
               : `Available for ${report.metrics.accuracySample} games`
           }
@@ -377,12 +385,14 @@ function Report({
 
       <ReportProductTools
         report={report}
+        games={games}
         filter={filter}
         entitlement={entitlement}
         config={runtimeConfig}
         savedReports={savedReports}
         onSavedReportsChange={onSavedReportsChange}
         onRequestProduct={onRequestProduct}
+        onReportChange={onReportChange}
       />
 
       <section className="report-section overview-section">
@@ -573,7 +583,7 @@ function Report({
                 <th>Color</th>
                 <th>Format</th>
                 <th>Opening</th>
-                <th>Accuracy</th>
+                <th>Accuracy / precision</th>
                 <th>Date</th>
                 <th><span className="sr-only">Open</span></th>
               </tr>
@@ -586,7 +596,11 @@ function Report({
                   <td>{game.color}</td>
                   <td><strong>{game.timeClass}</strong><span className="cell-note">{formatTimeControl(game.timeControl, game.timeClass)}</span></td>
                   <td className="opening-cell">{game.opening}</td>
-                  <td>{game.accuracy === null ? "—" : game.accuracy.toFixed(1)}</td>
+                  <td>{(() => {
+                    const engineGame = report.engineAnalysis?.games.find((item) => item.gameUrl === game.url)
+                    if (game.accuracy !== null) return game.accuracy.toFixed(1)
+                    return engineGame ? `${engineGame.precision.toFixed(1)} MM` : "—"
+                  })()}</td>
                   <td>{formatDate(game.endTime, true)}</td>
                   <td><a href={game.url} target="_blank" rel="noreferrer" aria-label={`Open game against ${game.opponent}`}><ExternalLink /></a></td>
                 </tr>
@@ -607,6 +621,7 @@ export default function Home() {
   const [progress, setProgress] = useState(INITIAL_PROGRESS)
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
   const [report, setReport] = useState<AnalysisReport | null>(null)
+  const [games, setGames] = useState<ChessGame[]>([])
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [error, setError] = useState("")
   const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig>(EMPTY_RUNTIME_CONFIG)
@@ -676,6 +691,7 @@ export default function Home() {
       setStatus("loading")
       setError("")
       setReport(null)
+      setGames([])
       setProfile(null)
       setProgress({ ...INITIAL_PROGRESS, label: "Starting the analysis…", percent: 2 })
       trackEvent({
@@ -716,6 +732,7 @@ export default function Home() {
         })
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
         setProfile(result.profile)
+        setGames(result.games)
         setReport(nextReport)
         setStatus("success")
         setProgress({ stage: "analysis", label: "Analysis complete", percent: 100 })
@@ -912,6 +929,7 @@ export default function Home() {
   const reset = () => {
     abortRef.current?.abort()
     setReport(null)
+    setGames([])
     setProfile(null)
     setError("")
     setStatus("idle")
@@ -1095,6 +1113,7 @@ export default function Home() {
         {status === "success" && report && profile && (
           <Report
             report={report}
+            games={games}
             profile={profile}
             filter={filter}
             entitlement={entitlement}
@@ -1102,6 +1121,7 @@ export default function Home() {
             savedReports={savedReports}
             onSavedReportsChange={setSavedReports}
             onRequestProduct={requestProduct}
+            onReportChange={setReport}
             onReset={reset}
           />
         )}
@@ -1130,8 +1150,9 @@ export default function Home() {
             <article>
               <span><CircleAlert /> What it cannot prove</span>
               <p>
-                The free report uses explainable pattern signals. Paid evidence positions
-                can run a local Stockfish check, but no automated score replaces human review.
+                The free report uses explainable pattern signals. Paid reports can compare
+                up to 200 decisions with local Stockfish and refine the findings, while still
+                showing exactly which positions produced each engine signal.
               </p>
             </article>
           </div>
